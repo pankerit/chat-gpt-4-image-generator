@@ -5,7 +5,7 @@ import path from 'path'
 import axios from 'axios'
 import { webpToPng } from './tools'
 import { ExcelParser } from './ExcelParser'
-import ora from 'ora'
+import ora, { Ora } from 'ora'
 puppeteer.use(StealthPlugin())
 
 async function main() {
@@ -27,9 +27,9 @@ async function main() {
         const inputWorkbook = new ExcelParser(ROOT_PATH('input', file))
         const inputSheet = inputWorkbook.getSheet(inputWorkbook.sheetNames[0])
         await page.goto('https://chat.openai.com/g/g-2fkFE8rbu-dall-e')
-        await sleep(5000)
+        await sleepWithOra(5000, spinner)
         let k = 1
-        for (let i = 1; i <= inputSheet.data.length; i++) {
+        for (let i = 1; i < inputSheet.data.length; i++) {
             const functionReset = async () => {
                 await page.goto('https://chat.openai.com/g/g-2fkFE8rbu-dall-e')
                 k = 1
@@ -52,7 +52,7 @@ async function main() {
             await page.keyboard.press('Enter')
             // check if limit reached
             {
-                await sleep(10_000)
+                await sleepWithOra(10_000, spinner)
                 const promptText = await page.evaluate(() => {
                     const elements = Array.from(document.querySelectorAll(`[data-testid*="conversation-turn-"]`))
                     const gptResponse = elements.at(-1) as HTMLElement
@@ -62,7 +62,7 @@ async function main() {
                 if (timeToWait) {
                     // log the time in hour and minutes
                     spinner.text = `Waiting ${new Date(Date.now() + timeToWait).toLocaleTimeString()}`
-                    await sleep(timeToWait)
+                    await sleepWithOra(timeToWait, spinner)
                     await functionReset()
                     continue
                 }
@@ -75,7 +75,6 @@ async function main() {
                 await functionReset()
                 continue
             }
-            // await sleep(120_000)
             const imageSources = await page.evaluate((imageSelector) => {
                 const images = document.querySelectorAll(imageSelector)
                 const sources: string[] = []
@@ -94,9 +93,10 @@ async function main() {
             }
             if (k % 20 === 0) {
                 await page.goto('https://chat.openai.com/g/g-2fkFE8rbu-dall-e')
-                await sleep(5000)
+                await sleepWithOra(5000, spinner)
                 k = 1
             }
+            await sleepWithOra(30_000, spinner)
         }
         spinner.succeed(`Processed ${file}`)
     }
@@ -143,7 +143,6 @@ function calculateWaitTime(apiMessage: string): number | null {
     const match = apiMessage.match(timeRegex)
 
     if (!match) {
-        console.error('Time not found in the message')
         return null
     }
 
@@ -180,4 +179,19 @@ function calculateWaitTime(apiMessage: string): number | null {
     waitTime += 60000
 
     return waitTime
+}
+
+function sleepWithOra(ms: number, spinner: Ora) {
+    const prevText = spinner.text
+    const startTime = Date.now() + ms
+    return new Promise<void>((resolve) => {
+        const interval = setInterval(() => {
+            spinner.text = `Sleep ${Math.round((startTime - Date.now()) / 1000)} seconds`
+        }, 100)
+        setTimeout(() => {
+            clearInterval(interval)
+            spinner.text = prevText
+            resolve()
+        }, ms)
+    })
 }
